@@ -185,7 +185,7 @@ jobs:
       - name: Add KernelSU-SukiSU Ultra
         run: |
           cd kernel_workspace/kernel_platform
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           cd ./KernelSU
           KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
@@ -340,20 +340,13 @@ jobs:
           target1="./AnyKernel3/"
           target2="./kernel_workspace/kernel"
 
-          # 查找 Image 文件
-          if find "$dir1" -name "Image" | grep -q "Image"; then
-            image_path="$dir1"Image
-          elif find "$dir2" -name "Image" | grep -q "Image"; then
-            image_path="$dir2"Image
-          elif find "$dir3" -name "Image" | grep -q "Image"; then
-            image_path="$dir3"Image
-          elif find "$dir4" -name "Image" | grep -q "Image"; then
-            image_path="$dir4"Image
-          elif find "$dir5" -name "Image" | grep -q "Image"; then
-            image_path="$dir5"Image
-          else
-            image_path=$(find "./kernel_workspace/kernel_platform/common/out/" -name "Image" | head -n 1)
-          fi
+          # 查找 Image 文件。sm8450/waipio 5.10 的实际产物通常在
+          # out/msm-waipio-waipio-gki/gki_kernel/dist/Image。
+          image_path=$(
+            find ./kernel_workspace/kernel_platform/out \
+              -type f \( -path "*/dist/Image" -o -path "*/arch/arm64/boot/Image" \) \
+              2>/dev/null | head -n 1
+          )
 
           # 拷贝 Image
           if [ -n "$image_path" ] && [ -f "$image_path" ]; then
@@ -366,6 +359,7 @@ jobs:
             cp "$dir1"Image ./AnyKernel3/Image
           else
             echo "未找到 Image 文件，构建可能失败"
+            find ./kernel_workspace/kernel_platform/out -maxdepth 6 -type f -name "Image*" 2>/dev/null || true
             exit 1
           fi
 
@@ -388,7 +382,16 @@ jobs:
       - name: Apply patch_linux and replace Image
         if: ${{ github.event.inputs.KPM == 'true' }}
         run: |
-          cd /home/runner/work/Action_OnePlus_MKSU_SUSFS/Action_OnePlus_MKSU_SUSFS/kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/dist
+          dist_dir=$(
+            find "$GITHUB_WORKSPACE/kernel_workspace/kernel_platform/out" \
+              -type f -path "*/dist/Image" -printf "%h\n" 2>/dev/null | head -n 1
+          )
+          if [ -z "$dist_dir" ]; then
+            echo "未找到可用于 patch_linux 的 dist/Image"
+            find "$GITHUB_WORKSPACE/kernel_workspace/kernel_platform/out" -maxdepth 6 -type f -name "Image*" 2>/dev/null || true
+            exit 1
+          fi
+          cd "$dist_dir"
 
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
           chmod +x patch_linux
